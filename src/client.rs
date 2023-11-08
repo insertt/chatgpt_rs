@@ -298,11 +298,19 @@ impl ChatGPT {
             .map(|response| {
                 let response_stream = response.bytes_stream().eventsource();
                 response_stream.map(move |part| {
-                    let chunk = &part.expect("Stream closed abruptly!").data;
+                    let chunk = match part {
+                        Ok(chunk) => chunk.data,
+                        Err(e) => {
+                            tracing::debug!(?e, "stream closed abruptly");
+                            return ResponseChunk::Done;
+                        }
+                    };
+
                     if chunk == "[DONE]" {
                         return ResponseChunk::Done;
                     }
-                    let data: InboundResponseChunk = serde_json::from_str(chunk)
+
+                    let data: InboundResponseChunk = serde_json::from_str(&chunk)
                         .expect("Invalid inbound streaming response payload!");
                     let choice = data.choices[0].to_owned();
                     match choice.delta {
