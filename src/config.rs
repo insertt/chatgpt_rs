@@ -52,7 +52,7 @@ impl Default for ModelConfiguration {
 }
 
 /// The engine version for ChatGPT
-#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, PartialOrd)]
 #[allow(non_camel_case_types)]
 pub enum ChatGPTEngine {
     /// Standard engine: `gpt-3.5-turbo`
@@ -69,7 +69,7 @@ pub enum ChatGPTEngine {
     /// Different version of GPT-4, able to remember 32,000 tokens: `gpt-4-32k-0314`
     Gpt4_32k_0314,
     /// Custom (or new/unimplemented) version of ChatGPT
-    Custom(&'static str),
+    Custom(String),
 }
 
 impl Display for ChatGPTEngine {
@@ -79,7 +79,7 @@ impl Display for ChatGPTEngine {
 }
 
 impl AsRef<str> for ChatGPTEngine {
-    fn as_ref(&self) -> &'static str {
+    fn as_ref(&self) -> &str {
         match self {
             ChatGPTEngine::Gpt35Turbo => "gpt-3.5-turbo",
             ChatGPTEngine::Gpt35Turbo_0301 => "gpt-3.5-turbo-0301",
