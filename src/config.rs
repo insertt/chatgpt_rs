@@ -4,7 +4,7 @@ use std::time::Duration;
 #[cfg(feature = "functions")]
 use crate::functions::FunctionValidationStrategy;
 use derive_builder::Builder;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 /// The struct containing main configuration for the ChatGPT API
 #[derive(Debug, Clone, PartialEq, PartialOrd, Builder)]
@@ -52,7 +52,7 @@ impl Default for ModelConfiguration {
 }
 
 /// The engine version for ChatGPT
-#[derive(Serialize, Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[allow(non_camel_case_types)]
 pub enum ChatGPTEngine {
     /// Standard engine: `gpt-3.5-turbo`
