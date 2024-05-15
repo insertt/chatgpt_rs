@@ -16,7 +16,7 @@ use {crate::types::ResponseChunk, futures::Stream};
 
 use crate::{
     client::ChatGPT,
-    types::{ChatMessage, CompletionResponse, Role},
+    types::{ChatMessage, ChatMessageContent, CompletionResponse, Role},
 };
 
 /// Stores a single conversation session, and automatically saves message history
@@ -37,12 +37,14 @@ pub struct Conversation {
 
 impl Conversation {
     /// Constructs a new conversation from an API client and the introductory message
-    pub fn new(client: ChatGPT, first_message: String) -> Self {
+    pub fn new(client: ChatGPT, first_message: impl AsRef<str>) -> Self {
+        let first_message = first_message.as_ref();
+
         Self {
             client,
             history: vec![ChatMessage {
                 role: Role::System,
-                content: first_message,
+                content: vec![first_message.into()],
                 #[cfg(feature = "functions")]
                 function_call: None,
             }],
@@ -94,14 +96,14 @@ impl Conversation {
 
     /// Sends a message from a specified role to the ChatGPT API and returns the completion response.
     #[cfg_attr(feature = "functions", async_recursion::async_recursion)]
-    pub async fn send_role_message<S: Into<String> + Send + Sync>(
+    pub async fn send_role_message<S: Into<ChatMessageContent> + Send + Sync>(
         &mut self,
         role: Role,
         message: S,
     ) -> crate::Result<CompletionResponse> {
         self.history.push(ChatMessage {
             role,
-            content: message.into(),
+            content: vec![message.into()],
             #[cfg(feature = "functions")]
             function_call: None,
         });
@@ -130,7 +132,7 @@ impl Conversation {
     /// Sends the message to the ChatGPT API and returns the completion response.
     ///
     /// Execution speed depends on API response times.
-    pub async fn send_message<S: Into<String> + Send + Sync>(
+    pub async fn send_message<S: Into<ChatMessageContent> + Send + Sync>(
         &mut self,
         message: S,
     ) -> crate::Result<CompletionResponse> {
@@ -141,13 +143,13 @@ impl Conversation {
     ///
     /// **NOTE**: Functions are counted as tokens internally.
     #[cfg(feature = "functions")]
-    pub async fn send_message_functions<S: Into<String>>(
+    pub async fn send_message_functions<S: Into<ChatMessageContent>>(
         &mut self,
         message: S,
     ) -> crate::Result<CompletionResponse> {
         self.history.push(ChatMessage {
             role: Role::User,
-            content: message.into(),
+            content: vec![message.into()],
             #[cfg(feature = "functions")]
             function_call: None,
         });
@@ -175,14 +177,38 @@ impl Conversation {
     ///
     /// Requires the `streams` crate feature.
     #[cfg(feature = "streams")]
-    pub async fn send_role_message_streaming<S: Into<String>>(
+    pub async fn send_role_message_streaming<S: Into<ChatMessageContent>>(
         &mut self,
         role: Role,
         message: S,
     ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
         self.history.push(ChatMessage {
             role,
-            content: message.into(),
+            content: vec![message.into()],
+            #[cfg(feature = "functions")]
+            function_call: None,
+        });
+        let stream = self.client.send_history_streaming(&self.history).await?;
+        Ok(stream)
+    }
+
+    /// Sends a list of messages with specified role to the ChatGPT API and returns the completion response as stream.
+    ///
+    /// Note, that this method will not automatically save the received message to history, as
+    /// it is returned in streamed chunks. You will have to collect them into chat message yourself.
+    ///
+    /// You can use [`ChatMessage::from_response_chunks`] for this
+    ///
+    /// Requires the `streams` crate feature.
+    #[cfg(feature = "streams")]
+    pub async fn send_role_messages_streaming<S: IntoIterator<Item = ChatMessageContent>>(
+        &mut self,
+        role: Role,
+        messages: S,
+    ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
+        self.history.push(ChatMessage {
+            role,
+            content: messages.into_iter().map(Into::into).collect(),
             #[cfg(feature = "functions")]
             function_call: None,
         });
@@ -199,11 +225,34 @@ impl Conversation {
     ///
     /// Requires the `streams` crate feature.
     #[cfg(feature = "streams")]
-    pub async fn send_message_streaming<S: Into<String>>(
+    pub async fn send_message_streaming<S: Into<ChatMessageContent>>(
         &mut self,
         message: S,
     ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
         self.send_role_message_streaming(Role::User, message).await
+    }
+
+    /// Sends a list of messages to the ChatGPT API and returns the completion response as stream.
+    ///
+    /// Note, that this method will not automatically save the received message to history, as
+    /// it is returned in streamed chunks. You will have to collect them into chat message yourself.
+    ///
+    /// You can use [`ChatMessage::from_response_chunks`] for this
+    ///
+    /// Requires the `streams` crate feature.
+    #[cfg(feature = "streams")]
+    pub async fn send_messages_streaming<S: IntoIterator<Item = ChatMessageContent>>(
+        &mut self,
+        messages: S,
+    ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
+        self.send_role_messages_streaming(Role::User, messages)
+            .await
+    }
+
+    /// Saves the history to a string, that can be restored to a conversation at runtime later.
+    #[cfg(feature = "json")]
+    pub async fn save_history_string(&self) -> crate::Result<String> {
+        Ok(serde_json::to_string(&self.history)?)
     }
 
     /// Saves the history to a local JSON file, that can be restored to a conversation at runtime later.

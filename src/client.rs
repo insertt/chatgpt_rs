@@ -16,7 +16,9 @@ use {
 
 use crate::config::ModelConfiguration;
 use crate::converse::Conversation;
-use crate::types::{ChatMessage, CompletionRequest, CompletionResponse, Role, ServerResponse};
+use crate::types::{
+    ChatMessage, ChatMessageContent, CompletionRequest, CompletionResponse, Role, ServerResponse,
+};
 
 #[cfg(feature = "functions")]
 use crate::functions::{FunctionArgument, FunctionDescriptor};
@@ -78,6 +80,20 @@ impl ChatGPT {
             .build()?;
         Ok(Self { client, config })
     }
+
+    /// Restores a conversation from history serialized to a JSON string.
+    /// The conversation file can originally be saved using the [`Conversation::save_history_string()`].
+    #[cfg(feature = "json")]
+    pub async fn restore_conversation_string<S: AsRef<str>>(
+        &self,
+        json_string: S,
+    ) -> crate::Result<Conversation> {
+        Ok(Conversation::new_with_history(
+            self.clone(),
+            serde_json::from_str(json_string.as_ref())?,
+        ))
+    }
+
     /// Restores a conversation from local conversation JSON file.
     /// The conversation file can originally be saved using the [`Conversation::save_history_json()`].
     #[cfg(feature = "json")]
@@ -211,7 +227,7 @@ impl ChatGPT {
     }
 
     /// Sends a single message to the API without preserving message history.
-    pub async fn send_message<S: Into<String>>(
+    pub async fn send_message<S: Into<ChatMessageContent>>(
         &self,
         message: S,
     ) -> crate::Result<CompletionResponse> {
@@ -222,7 +238,7 @@ impl ChatGPT {
                 model: self.config.engine.as_ref(),
                 messages: &vec![ChatMessage {
                     role: Role::User,
-                    content: message.into(),
+                    content: vec![message.into()],
                     #[cfg(feature = "functions")]
                     function_call: None,
                 }],
@@ -254,7 +270,7 @@ impl ChatGPT {
     ///
     /// Requires the `streams` crate feature
     #[cfg(feature = "streams")]
-    pub async fn send_message_streaming<S: Into<String>>(
+    pub async fn send_message_streaming<S: Into<ChatMessageContent>>(
         &self,
         message: S,
     ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
@@ -265,7 +281,43 @@ impl ChatGPT {
                 model: self.config.engine.as_ref(),
                 messages: &vec![ChatMessage {
                     role: Role::User,
-                    content: message.into(),
+                    content: vec![message.into()],
+                    #[cfg(feature = "functions")]
+                    function_call: None,
+                }],
+                stream: true,
+                temperature: self.config.temperature,
+                top_p: self.config.top_p,
+                max_tokens: self.config.max_tokens,
+                frequency_penalty: self.config.frequency_penalty,
+                presence_penalty: self.config.presence_penalty,
+                reply_count: self.config.reply_count,
+                #[cfg(feature = "functions")]
+                functions: &Vec::new(),
+            })
+            .send()
+            .await?;
+
+        Self::process_streaming_response(response)
+    }
+
+    /// Sends a list of messages to the API, and returns the response as stream, without preserving message history.
+    /// **Stream will be empty** if any errors are returned from the server.
+    ///
+    /// Requires the `streams` crate feature
+    #[cfg(feature = "streams")]
+    pub async fn send_messages_streaming<S: IntoIterator<Item = ChatMessageContent>>(
+        &self,
+        messages: S,
+    ) -> crate::Result<impl Stream<Item = ResponseChunk>> {
+        let response = self
+            .client
+            .post(self.config.api_url.clone())
+            .json(&CompletionRequest {
+                model: self.config.engine.as_ref(),
+                messages: &vec![ChatMessage {
+                    role: Role::User,
+                    content: messages.into_iter().map(Into::into).collect(),
                     #[cfg(feature = "functions")]
                     function_call: None,
                 }],
@@ -338,7 +390,7 @@ impl ChatGPT {
     /// **NOTE**: Functions are processed [as tokens on the backend](https://platform.openai.com/docs/guides/gpt/function-calling),
     /// so you might want to limit the amount of functions or their description.
     #[cfg(feature = "functions")]
-    pub async fn send_message_functions<S: Into<String>, A: FunctionArgument>(
+    pub async fn send_message_functions<S: Into<ChatMessageContent>, A: FunctionArgument>(
         &self,
         message: S,
         functions: Vec<FunctionDescriptor<A>>,
@@ -359,7 +411,7 @@ impl ChatGPT {
     /// **NOTE**: Functions are processed [as tokens on the backend](https://platform.openai.com/docs/guides/gpt/function-calling),
     /// so you might want to limit the amount of functions or their description.
     #[cfg(feature = "functions")]
-    pub async fn send_message_functions_baked<S: Into<String>>(
+    pub async fn send_message_functions_baked<S: Into<ChatMessageContent>>(
         &self,
         message: S,
         baked_functions: Vec<serde_json::Value>,
@@ -371,7 +423,7 @@ impl ChatGPT {
                 model: self.config.engine.as_ref(),
                 messages: &vec![ChatMessage {
                     role: Role::User,
-                    content: message.into(),
+                    content: vec![message.into()],
                     #[cfg(feature = "functions")]
                     function_call: None,
                 }],

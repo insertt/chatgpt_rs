@@ -83,7 +83,21 @@ pub mod test {
     #[tokio::test]
     async fn test_conversation_restoring() -> crate::Result<()> {
         let client = ChatGPT::new(std::env::var("TEST_API_KEY")?)?;
-        let mut conv = client.restore_conversation_json("history.json").await?;
+
+        let mut conv = client.new_conversation_directed(
+            "You are TestGPT, an AI model developed in Rust in year 2023.",
+        );
+        let _resp_a = conv.send_message("Could you tell me who you are?").await?;
+        let _resp_b = conv
+            .send_message("What did I ask you about in my first question?")
+            .await?;
+
+        let history = conv.save_history_string().await?;
+        let mut conv = client.restore_conversation_string(history).await?;
+
+        // introduction message + 2 questions and responses
+        assert_eq!(conv.history.len(), 5);
+
         let _resp = conv
             .send_message("Could you tell me what did I ask you about in my first question?")
             .await?;
@@ -146,10 +160,12 @@ pub mod test {
         let response = client
             .send_message("Could you give me names of three popular Rust web frameworks?")
             .await?;
+
         assert_eq!(
             response.message_choices.first().unwrap().finish_reason,
             "length".to_string()
         );
+
         Ok(())
     }
 
@@ -164,10 +180,12 @@ pub mod test {
         let response = client
             .send_message("Could you give me names of three popular Rust web frameworks?")
             .await?;
+
         assert_eq!(
             response.message_choices.first().unwrap().finish_reason,
-            "length".to_string()
+            "stop".to_string()
         );
+
         Ok(())
     }
 }

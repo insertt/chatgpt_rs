@@ -5,7 +5,7 @@ It supports conversations, message persistence and ChatGPT functions.
 
 ## Regarding ChatGPT Functions
 
-The function API (available in `v1.2.0+`) is currently experimental and *may* not work as intended. 
+The function API (available in `v1.2.0+`) is currently experimental and *may* not work as intended.
 If you encounter any issues or undefined behaviour, please, create an issue in this repository!
 
 ## MSRV
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
         .send_message("Describe in five words the Rust programming language.")
         .await?;
 
-    println!("Response: {}", response.message().content);
+    println!("Response: {}", response.message().content());
 
     Ok(())
 }
@@ -82,7 +82,7 @@ Note that the returned streams normally don't have any utility methods, so you w
 
 ## Conversations
 
-Conversations are the threads in which ChatGPT can analyze previous messages and chain it's thoughts. 
+Conversations are the threads in which ChatGPT can analyze previous messages and chain it's thoughts.
 They also automatically store all the message history.
 
 Here is an example:
@@ -117,7 +117,7 @@ let mut conversation: Conversation = client.new_conversation_directed("You are R
 
 ### Conversation Streaming
 
-Conversations also support returning streamed responses (with the `streams` feature). 
+Conversations also support returning streamed responses (with the `streams` feature).
 
 **NOTE:** Streamed responses *do not* automatically save returned message to history, so you will have to do it manually by yourself.
 
@@ -168,7 +168,7 @@ You can define functions with the `gpt_function` attribute macro, like this:
 use chatgpt::prelude::*;
 
 /// Says hello to a user
-/// 
+///
 /// * user_name - Name of the user to greet
 #[gpt_function]
 async fn say_hello(user_name: String) {
@@ -186,10 +186,10 @@ let response = conversation
 // and subsequent response was sent
 ```
 
-As you can see, GPT functions must have a description so the model knows when to call them and what they do. 
+As you can see, GPT functions must have a description so the model knows when to call them and what they do.
 In ChatGPT-rs function descriptions are represented as simple rust docs.
 Each argument is documented as `* {argument name} - {argument description}`.
-Function arguments are processed from JSON, so as long as they implement `schemars::JsonSchema` 
+Function arguments are processed from JSON, so as long as they implement `schemars::JsonSchema`
 and `serde::Deserialize` they will be parsed correctly.
 
 By default, ChatGPT-rs uses minimal `schemars` features, enable feature `functions_extra` to add support for
@@ -208,7 +208,7 @@ struct Args {
 }
 
 /// Wishes happy birthday to the user
-/// 
+///
 /// * args - Arguments
 #[gpt_function]
 async fn happy_birthday(args: Args) {
@@ -220,16 +220,16 @@ Functions can also return any data (as long as it implements `serde::Serialize`)
 
 ```rust
 /// Does some heavy computations and returns result
-/// 
+///
 /// * input - Input data as vector of floats
 #[gpt_function]
 async fn do_heavy_computation(input: Vec<f64>) -> Vec<f64> {
-    let output: Vec<f64> = // ... Do something with the input ...  
+    let output: Vec<f64> = // ... Do something with the input ...
     return output;
 }
 ```
 
-By default, functions are only sent to API by calling the `send_message_functions` method. 
+By default, functions are only sent to API by calling the `send_message_functions` method.
 If you wish to enable automatic function sending with each message, you can set the `always_send_functions` property within `Conversation` to true.
 
 Current function limitations are:

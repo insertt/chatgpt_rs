@@ -1,6 +1,8 @@
+use std::fmt;
+
 #[cfg(feature = "functions")]
 use crate::functions::FunctionCall;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Serialize};
 
 /// A role of a message sender, can be:
 /// - `System`, for starting system message, that sets the tone of model
@@ -19,49 +21,84 @@ pub enum Role {
     Function,
 }
 
+/// Type of the message content
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatMessageType {
+    /// Text message
+    Text,
+    /// Image URL
+    ImageUrl,
+}
+
 /// Container for the sent/received ChatGPT messages
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct ChatMessage {
     /// Role of message sender
     pub role: Role,
     /// Actual content of the message
-    #[serde(deserialize_with = "deserialize_maybe_null")]
-    pub content: String,
+    #[serde(deserialize_with = "string_or_array")]
+    pub content: Vec<ChatMessageContent>,
     /// Function call (if present)
     #[cfg(feature = "functions")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
 }
 
-fn deserialize_maybe_null<'de, D>(deserializer: D) -> Result<String, D::Error>
-    where D: Deserializer<'de> {
-    let buf = Option::<String>::deserialize(deserializer)?;
-    Ok(buf.unwrap_or(String::new()))
-}
-
 impl ChatMessage {
+    /// Creates a new chat message
+    pub fn new(role: Role, content: impl Into<Vec<ChatMessageContent>>) -> Self {
+        Self {
+            role,
+            content: content.into(),
+            #[cfg(feature = "functions")]
+            function_call: None,
+        }
+    }
+
+    /// Returns concatenated content of the message
+    pub fn content(&self) -> String {
+        self.content
+            .iter()
+            .map(|content| content)
+            .fold(String::new(), |mut acc, elem| {
+                acc.push_str(&elem.to_string());
+                acc
+            })
+    }
+
+    /// Returns the raw content of the message
+    pub fn raw_content(&self) -> &[ChatMessageContent] {
+        self.content.as_slice()
+    }
+
     /// Converts multiple response chunks into multiple (or a single) chat messages
     #[cfg(feature = "streams")]
     pub fn from_response_chunks(chunks: Vec<ResponseChunk>) -> Vec<Self> {
         let mut result: Vec<Self> = Vec::new();
+        let mut responses: Vec<(Role, String)> = Vec::new();
+
         for chunk in chunks {
             match chunk {
                 ResponseChunk::Content {
                     delta,
                     response_index,
                 } => {
-                    let msg = result
+                    let (_, response) = responses
                         .get_mut(response_index)
                         .expect("Invalid response chunk sequence!");
-                    msg.content.push_str(&delta);
+
+                    response.push_str(&delta);
                 }
                 ResponseChunk::BeginResponse {
                     role,
                     response_index: _,
                 } => {
+                    responses.push((role, String::with_capacity(16)));
+
                     let msg = ChatMessage {
                         role,
-                        content: String::new(),
+                        content: vec![],
                         #[cfg(feature = "functions")]
                         function_call: None,
                     };
@@ -70,8 +107,78 @@ impl ChatMessage {
                 _ => {}
             }
         }
-        result
+
+        responses
+            .into_iter()
+            .map(|(role, response)| ChatMessage::new(role, &[ChatMessageContent::text(response)]))
+            .collect::<Vec<_>>()
     }
+}
+
+/// Content of the message
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatMessageContent {
+    /// Text content
+    Text {
+        #[serde(deserialize_with = "deserialize_maybe_null")]
+        text: String,
+    },
+    /// Image URL content
+    ImageUrl { image_url: ImageUrlContent },
+}
+
+impl fmt::Display for ChatMessageContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChatMessageContent::Text { text } => write!(f, "{}", text),
+            ChatMessageContent::ImageUrl {
+                image_url: ImageUrlContent { url },
+            } => write!(f, "{}", url),
+        }
+    }
+}
+
+impl ChatMessageContent {
+    /// Creates a new text message content
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text { text: text.into() }
+    }
+
+    /// Creates a new image URL message content
+    pub fn image_url(url: impl Into<String>) -> Self {
+        Self::ImageUrl {
+            image_url: ImageUrlContent { url: url.into() },
+        }
+    }
+}
+
+impl From<String> for ChatMessageContent {
+    fn from(value: String) -> Self {
+        ChatMessageContent::Text { text: value }
+    }
+}
+
+impl From<&String> for ChatMessageContent {
+    fn from(value: &String) -> Self {
+        ChatMessageContent::Text {
+            text: value.clone(),
+        }
+    }
+}
+
+impl From<&str> for ChatMessageContent {
+    fn from(value: &str) -> Self {
+        ChatMessageContent::Text {
+            text: value.to_string(),
+        }
+    }
+}
+
+/// Image URL content
+#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct ImageUrlContent {
+    url: String,
 }
 
 /// A request struct sent to the API to request a message completion
@@ -237,4 +344,43 @@ pub enum InboundChunkPayload {
     },
     /// Closes a single message
     Close {},
+}
+
+fn string_or_array<'de, D>(deserializer: D) -> Result<Vec<ChatMessageContent>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    struct StringOrArray;
+
+    impl<'de> de::Visitor<'de> for StringOrArray {
+        type Value = Vec<ChatMessageContent>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("string or list of ChatMessageContent")
+        }
+
+        fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![ChatMessageContent::text(s.to_string())])
+        }
+
+        fn visit_seq<S>(self, seq: S) -> Result<Self::Value, S::Error>
+        where
+            S: de::SeqAccess<'de>,
+        {
+            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
+        }
+    }
+
+    deserializer.deserialize_any(StringOrArray)
+}
+
+fn deserialize_maybe_null<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let buf = Option::<String>::deserialize(deserializer)?;
+    Ok(buf.unwrap_or(String::new()))
 }
