@@ -26,7 +26,7 @@ impl<A: FunctionArgument> Serialize for FunctionDescriptor<A> {
         s.serialize_field("name", self.name)?;
         s.serialize_field("description", self.description)?;
         let mut schema = schema_for!(A);
-        schema.meta_schema = None; // I don't think ChatGPT will need $schema meta information
+        schema.remove("$schema"); // I don't think ChatGPT will need $schema meta information
         s.serialize_field("parameters", &schema)?;
 
         s.end()

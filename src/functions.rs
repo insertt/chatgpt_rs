@@ -51,7 +51,8 @@ mod tests {
                         "age": {
                             "description": "Some example age",
                             "format": "uint16",
-                            "minimum": 0.0,
+                            "maximum": 65535,
+                            "minimum": 0,
                             "type": "integer"
                         },
                         "name": {
@@ -59,7 +60,7 @@ mod tests {
                             "type": "string"
                         }
                     },
-                    "required": ["age", "name"],
+                    "required": ["name", "age"],
                     "title": "TestArguments",
                     "type": "object"
                 }
